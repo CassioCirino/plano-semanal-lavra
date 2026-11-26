@@ -6,7 +6,7 @@ import { DEFAULT_CONFIG } from "./types";
  * Armazenamento
  *  - Cache local (localStorage): o app abre rápido e funciona sem sinal na mina.
  *  - Espaço compartilhado da equipe (opcional): um documento JSON online no jsonblob.com,
- *    criado pelo próprio app com um toque, sem conta. Quem abre o link com ?equipe=<id>
+ *    criado pelo próprio app com um toque, sem conta (via /api/blob, função da Vercel). Quem abre o link com ?equipe=<id>
  *    entra no mesmo espaço. O app junta as mudanças locais com as da nuvem atividade por
  *    atividade (vence a alteração mais recente), então duas pessoas apontando ao mesmo
  *    tempo não se sobrescrevem. Sem sinal, as mudanças ficam no aparelho e sobem depois.
@@ -18,7 +18,7 @@ const K_CFG = "psl.config.v1";
 const K_DEL = "psl.excluidas.v1";
 const K_CFGAT = "psl.config.at.v1";
 const K_TEAM = "psl.equipe.v1";
-export const BLOB_API = "https://jsonblob.com/api/jsonBlob";
+export const BLOB_API = "/api/blob";
 
 interface Doc {
   app: "plano-semanal-lavra";
@@ -106,7 +106,7 @@ export function useStore() {
     try {
       do {
         again.current = false;
-        const r = await fetch(`${BLOB_API}/${team}`, { headers: { Accept: "application/json" }, cache: "no-store" });
+        const r = await fetch(`${BLOB_API}?id=${team}`, { headers: { Accept: "application/json" }, cache: "no-store" });
         if (!r.ok) throw new Error("GET " + r.status);
         const remote = (await r.json()) as Partial<Doc>;
         const rem = { acts: remote.acts ?? [], deleted: remote.deleted ?? {}, cfg: remote.cfg ?? null, cfgAt: remote.cfgAt ?? null };
@@ -115,7 +115,7 @@ export function useStore() {
         if (sig(mg) !== sig(rem)) {
           setSync("enviando");
           const doc: Doc = { app: "plano-semanal-lavra", v: 1, ...mg };
-          const w = await fetch(`${BLOB_API}/${team}`, {
+          const w = await fetch(`${BLOB_API}?id=${team}`, {
             method: "PUT", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(doc),
           });
           if (!w.ok) throw new Error("PUT " + w.status);
@@ -193,8 +193,7 @@ export function useStore() {
     const doc: Doc = { app: "plano-semanal-lavra", v: 1, acts: state.current.acts, deleted: deleted.current, cfg: state.current.cfg, cfgAt: cfgAt.current ?? new Date().toISOString() };
     const r = await fetch(BLOB_API, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(doc) });
     if (!r.ok) throw new Error("POST " + r.status);
-    const loc = r.headers.get("Location") ?? r.headers.get("X-jsonblob-id") ?? "";
-    const id = loc.split("/").filter(Boolean).pop();
+    const { id } = (await r.json()) as { id?: string };
     if (!id) throw new Error("sem id");
     write(K_TEAM, id);
     setTeam(id);
