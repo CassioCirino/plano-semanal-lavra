@@ -11,6 +11,14 @@ const COLS = [
   "Início real", "Fim real", "Status", "Crítica", "Motivo do desvio", "Observação",
 ] as const;
 
+/** Formato de data brasileiro nas colunas de datas (planejadas e reais). */
+function fmtDates(sh: XLSX.WorkSheet, r: number) {
+  for (const c of [7, 8, 14, 15]) {
+    const cell = sh[XLSX.utils.encode_cell({ r, c })];
+    if (cell && (cell.t === "d" || cell.t === "n")) cell.z = "dd/mm/yyyy hh:mm";
+  }
+}
+
 const TIPO_TXT: Record<Tipo, string> = { rom: "ROM", est: "Estéril", geo: "Geometria" };
 
 /** Exporta as atividades (da semana ou todas) + resumo de aderência e movimentação diária. */
@@ -45,9 +53,9 @@ export function exportPlano(acts: Atividade[], ws: number, now: number, cfg: Con
   ws1["!cols"] = [10, 10, 14, 22, 30, 10, 28, 17, 17, 10, 8, 11, 11, 11, 17, 17, 12, 8, 22, 40].map((w) => ({ wch: w }));
   // formato de porcentagem
   const range = XLSX.utils.decode_range(ws1["!ref"] ?? "A1");
-  for (let r = 1; r <= range.e.r; r++) for (const c of [12, 13]) {
-    const cell = ws1[XLSX.utils.encode_cell({ r, c })];
-    if (cell) cell.z = "0%";
+  for (let r = 1; r <= range.e.r; r++) {
+    for (const c of [12, 13]) { const cell = ws1[XLSX.utils.encode_cell({ r, c })]; if (cell) cell.z = "0%"; }
+    fmtDates(ws1, r);
   }
   XLSX.utils.book_append_sheet(wb, ws1, "Plano");
 
@@ -100,6 +108,7 @@ export function exportModelo(ws: number) {
   ];
   const sh = XLSX.utils.json_to_sheet(rows, { header: [...COLS], cellDates: true, dateNF: "dd/mm/yyyy hh:mm" });
   sh["!cols"] = COLS.map((c) => ({ wch: Math.max(10, c.length + 2) }));
+  for (let r = 1; r <= rows.length; r++) fmtDates(sh, r);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, sh, "Plano");
   const help = XLSX.utils.aoa_to_sheet([
@@ -171,7 +180,19 @@ const parseTipo = (v: unknown, nome: string, un: string): Tipo => {
 
 export async function importPlano(file: File, existentes: Atividade[]): Promise<ImportResult> {
   const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: "array", cellDates: true });
+  let wb: XLSX.WorkBook;
+  if (/\.(csv|txt)$/i.test(file.name)) {
+    // CSV: decodifica (UTF-8 ou Windows-1252, comum no Excel em português) e mantém tudo como texto,
+    // para as datas dd/mm/aaaa e os números 30.000,5 serem lidos no padrão brasileiro.
+    let text = new TextDecoder("utf-8").decode(buf);
+    if (text.includes("�")) text = new TextDecoder("windows-1252").decode(buf);
+    text = text.replace(/^﻿/, "");
+    const first = text.split(/\r?\n/, 1)[0] ?? "";
+    const FS = (first.match(/;/g) ?? []).length > (first.match(/,/g) ?? []).length ? ";" : (first.includes("\t") ? "\t" : ",");
+    wb = XLSX.read(text, { type: "string", raw: true, FS } as XLSX.ParsingOptions);
+  } else {
+    wb = XLSX.read(buf, { type: "array", cellDates: true });
+  }
   const sheetName = wb.SheetNames.find((n) => norm(n) === "plano") ?? wb.SheetNames[0];
   const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[sheetName], { defval: "", raw: true });
   const res: ImportResult = { novas: [], atualizadas: [], erros: [] };
