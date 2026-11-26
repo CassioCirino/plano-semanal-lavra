@@ -47,12 +47,22 @@ npm run dev
 
 ## Dados compartilhados com a equipe
 
-Sem configuração, cada aparelho guarda o próprio plano. Para a equipe toda ver o mesmo plano, toque em "⋯ > Compartilhar com a equipe > Criar espaço da equipe". O app cria um documento JSON online (jsonblob.com, sem conta) com o plano deste aparelho e mostra um link no formato `https://.../?equipe=<id>`. Quem abre esse link entra no mesmo espaço.
+Sem configuração, cada aparelho guarda o próprio plano. Para a equipe toda ver o mesmo plano, toque em "⋯ > Compartilhar com a equipe > Criar espaço da equipe". O app grava um documento JSON com o plano deste aparelho na função `/api/blob` da própria Vercel e mostra um link no formato `https://.../?equipe=<id>`. Quem abre esse link entra no mesmo espaço.
 
-- A sincronização acontece ao abrir o app, a cada 20 segundos, ao voltar para o app e logo depois de cada alteração.
+- A sincronização acontece ao abrir o app, a cada 30 segundos, ao voltar para o app e logo depois de cada alteração.
 - As mudanças são juntadas atividade por atividade, e vence a alteração mais recente. Assim, duas pessoas apontando ao mesmo tempo não apagam o trabalho uma da outra.
 - Sem sinal, tudo fica salvo no aparelho e é enviado quando a conexão volta.
 - Por ser um protótipo sem login, quem tem o link consegue ver e editar os dados. Para produção, o próximo passo é trocar por um banco com login (por exemplo Supabase).
+
+### Ligar o banco (uma vez)
+
+O documento fica num banco Redis gratuito da Upstash, ligado ao projeto pela própria Vercel:
+
+1. No painel do projeto na Vercel, abra **Storage** e toque em **Create Database**.
+2. Escolha **Upstash for Redis**, aceite o plano gratuito e conecte ao projeto `plano-semanal-lavra`.
+3. Refaça o deploy (Deployments > ⋯ > Redeploy).
+
+A Vercel cria as variáveis `KV_REST_API_URL` e `KV_REST_API_TOKEN` sozinha. Para conferir, abra `/api/blob?status=1`.
 
 ## Publicar na Vercel
 
@@ -61,4 +71,4 @@ Sem configuração, cada aparelho guarda o próprio plano. Para a equipe toda ve
 
 ## Tecnologia
 
-React 18, TypeScript, Vite, vite-plugin-pwa (instalação e uso offline), SheetJS (Excel) e jsonblob.com (espaço compartilhado).
+React 18, TypeScript, Vite, vite-plugin-pwa (instalação e uso offline), SheetJS (Excel) e Upstash Redis via função da Vercel (espaço compartilhado).

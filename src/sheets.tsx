@@ -277,7 +277,7 @@ export function ShareSheet({ team, sync, onClose, onCreate, onLeave, toast }: {
         <>
           <p style={{ margin: 0 }}>Todos que abrirem este link veem e atualizam o mesmo plano. Envie para a equipe de planejamento e da operação.</p>
           <div className="linkbox"><input ref={inp} className="inp" readOnly value={link} onFocus={(e) => e.target.select()} aria-label="Link do espaço" /></div>
-          <div className="muted" style={{ fontSize: 12.5 }}>Situação: {sync === "sincronizado" ? "sincronizado" : sync === "offline" ? "sem sinal, as mudanças sobem quando voltar" : sync === "erro" ? "erro ao sincronizar, tentando de novo" : "sincronizando…"}. Atualiza sozinho a cada 20 segundos.</div>
+          <div className="muted" style={{ fontSize: 12.5 }}>Situação: {sync === "sincronizado" ? "sincronizado" : sync === "offline" ? "sem sinal, as mudanças sobem quando voltar" : sync === "erro" ? "erro ao sincronizar, tentando de novo" : "sincronizando…"}. Atualiza sozinho a cada 30 segundos.</div>
           <div className="muted" style={{ fontSize: 12.5 }}>Protótipo sem login: quem tiver o link consegue ver e editar os dados.</div>
         </>
       ) : (

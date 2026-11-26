@@ -5,8 +5,8 @@ import { DEFAULT_CONFIG } from "./types";
 /*
  * Armazenamento
  *  - Cache local (localStorage): o app abre rápido e funciona sem sinal na mina.
- *  - Espaço compartilhado da equipe (opcional): um documento JSON online no jsonblob.com,
- *    criado pelo próprio app com um toque, sem conta (via /api/blob, função da Vercel). Quem abre o link com ?equipe=<id>
+ *  - Espaço compartilhado da equipe (opcional): um documento JSON guardado pela função
+ *    /api/blob da Vercel (banco Redis/Upstash ligado ao projeto), criado com um toque. Quem abre o link com ?equipe=<id>
  *    entra no mesmo espaço. O app junta as mudanças locais com as da nuvem atividade por
  *    atividade (vence a alteração mais recente), então duas pessoas apontando ao mesmo
  *    tempo não se sobrescrevem. Sem sinal, as mudanças ficam no aparelho e sobem depois.
@@ -141,7 +141,7 @@ export function useStore() {
   useEffect(() => {
     if (!team) { setSync("local"); setLoaded(true); return; }
     void doSync();
-    const t = setInterval(() => document.visibilityState === "visible" && void doSync(), 20000);
+    const t = setInterval(() => document.visibilityState === "visible" && void doSync(), 30000);
     const on = () => void doSync();
     const off = () => setSync("offline");
     const vis = () => document.visibilityState === "visible" && void doSync();
