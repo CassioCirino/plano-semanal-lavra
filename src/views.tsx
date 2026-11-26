@@ -121,7 +121,7 @@ export function GanttView(p: VProps) {
                     ? { right: `calc(${100 - end}% + 8px)`, background: "var(--surface)", padding: "0 5px", borderRadius: 4 }
                     : { left: `calc(${end}% + 6px)` };
                   const rs = a.iniReal ? pos(a.iniReal) : null;
-                  const re = a.fimReal ? pos(a.fimReal) : a.iniReal ? pos(new Date(Math.min(p.now, addDays(p.ws, 7))).toISOString()) : null;
+                  const re = a.fimReal ? pos(a.fimReal) : a.iniReal ? pos(new Date(Math.min(p.now, ms(a.fim))).toISOString()) : null;
                   return [
                     <div key={a.id + "l"} className="g-label" onClick={() => p.onOpen(a.id)}>
                       <div className="t"><CritMark a={a} />{a.nome}</div>
@@ -352,7 +352,7 @@ function ChartDaily({ week, ws, now }: { week: Atividade[]; ws: number; now: num
 }
 
 function ChartHist({ all, now, meta, ws }: { all: Atividade[]; now: number; meta: number; ws: number }) {
-  const H = history(all, now, 9);
+  const H = history(all, Math.min(now, addDays(ws, 7) - 1), 9);
   const W = 420, Hh = 190, pl = 30, pb = 24, pt = 18, pr = 8;
   const vals = H.map((h) => h.ader).filter((v): v is number => v !== null);
   const lo = Math.max(0, Math.floor(Math.min(60, ...vals, meta) / 10) * 10);
@@ -380,24 +380,27 @@ function ChartHist({ all, now, meta, ws }: { all: Atividade[]; now: number; meta
 export function AderenciaView(p: VProps) {
   const t = refNow(p.ws, p.now);
   const I = indicators(p.week, t), meta = p.cfg.metaAderencia;
-  const M = monthStats(p.all, p.now, p.cfg), f = M.frac;
+  const wsMid = new Date(addDays(p.ws, 3));
+  const monthEnd = new Date(wsMid.getFullYear(), wsMid.getMonth() + 1, 1).getTime() - 1;
+  const mRef = Math.min(p.now, monthEnd);
+  const M = monthStats(p.all, Math.max(mRef, new Date(wsMid.getFullYear(), wsMid.getMonth(), 1).getTime()), p.cfg), f = M.frac;
   const mov = M.rom + M.est;
   const c = (v: number) => cls(v, meta);
   const meter = (lbl: string, ac: number, mt: number, color: string, sub: string) => (
     <div className="meter">
-      <div className="row"><strong>{lbl}</strong><span className="num">{fmt(ac / 1000)} / {fmt(mt / 1000)} kt · <span className={c(mt ? (ac / (mt * f)) * 100 : 100)}>{mt ? fmt((ac / (mt * f)) * 100) : "—"}% do previsto</span></span></div>
+      <div className="row"><strong>{lbl}</strong><span className="num">{fmt(ac / 1000)} / {fmt(mt / 1000)} kt · <span className={c(mt && f > 0 ? (ac / (mt * f)) * 100 : 100)}>{mt && f > 0 ? fmt((ac / (mt * f)) * 100) + "%" : "—"} do previsto</span></span></div>
       <div className="track"><i style={{ width: `${mt ? Math.min(100, (ac / mt) * 100) : 0}%`, background: color }} /><b style={{ left: `${f * 100}%` }} title="Previsto até hoje" /></div>
       <div className="sub">{sub}</div>
     </div>
   );
   const mmax = M.motivos[0]?.[1] ?? 1;
   const rows = p.week.filter((a) => expct(a, t) > 0 || a.real > 0).sort((a, b) => ms(a.ini) - ms(b.ini));
-  const mes = MESES_FULL[new Date(p.now).getMonth()];
+  const mes = MESES_FULL[wsMid.getMonth()];
   const pdePct = p.cfg.pdeCap ? (M.pdeOcupAtual / p.cfg.pdeCap) * 100 : 0;
   return (
     <section className="view">
       <div>
-        <div className="eyebrow">Semana {isoWeek(p.ws).week}{t < addDays(p.ws, 7) ? ` até ${fmtDH(t)}` : " (fechada)"} · {mes} até hoje</div>
+        <div className="eyebrow">Semana {isoWeek(p.ws).week}{t < addDays(p.ws, 7) ? ` até ${fmtDH(t)}` : " (fechada)"} · {mes}/{wsMid.getFullYear()}{mRef < p.now ? " (mês fechado)" : " até hoje"}</div>
         <h2>Aderência e cumprimento do plano</h2>
       </div>
       <div className="kpis">

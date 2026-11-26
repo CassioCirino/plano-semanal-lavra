@@ -4,10 +4,11 @@ import { useStore, type Sync } from "./lib/store";
 import { inWeekRange, ofWeek } from "./lib/calc";
 import { addDays, weekLabel, weekStart } from "./lib/time";
 import { exportModelo, exportPlano } from "./lib/excel";
-import { sampleHistory, sampleWeek } from "./lib/sample";
+import { sampleHistory, sampleMonth, sampleWeek } from "./lib/sample";
 import { AderenciaView, ApontarView, GanttView, HojeView, type VProps } from "./views";
 import { ActivityForm, ImportSheet, SettingsSheet, UpdateSheet } from "./sheets";
 import { Icon } from "./ui";
+import { PeriodPicker } from "./picker";
 
 type View = "gantt" | "hoje" | "apontar" | "aderencia";
 const VIEWS: View[] = ["gantt", "hoje", "apontar", "aderencia"];
@@ -40,7 +41,7 @@ export default function App() {
   const toast = useCallback((m: string) => { setMsg(m); clearTimeout(tt.current); tt.current = window.setTimeout(() => setMsg(null), 2800); }, []);
   const [bip, setBip] = useState<BIP>(null);
   useEffect(() => { const h = (e: Event) => { e.preventDefault(); setBip(e); }; addEventListener("beforeinstallprompt", h); return () => removeEventListener("beforeinstallprompt", h); }, []);
-  const dateRef = useRef<HTMLInputElement>(null);
+  const [picker, setPicker] = useState(false);
 
   const week = useMemo(() => ofWeek(store.acts, ws), [store.acts, ws]);
   const range = useMemo(() => inWeekRange(store.acts, ws), [store.acts, ws]);
@@ -55,8 +56,14 @@ export default function App() {
     setWs(curWs);
     toast("Dados de exemplo carregados");
   };
+  const loadJan = () => {
+    const list = sampleMonth(2026, 0);
+    store.upsertMany(list);
+    setWs(weekStart(new Date(2026, 0, 5).getTime()));
+    toast(`${list.length} atividades de janeiro/2026 carregadas`);
+  };
   const clearSample = () => {
-    const ids = store.acts.filter((a) => /^(EX\d|H\d)/.test(a.id)).map((a) => a.id);
+    const ids = store.acts.filter((a) => /^(EX\d|H\d|J\d)/.test(a.id)).map((a) => a.id);
     store.remove(ids);
     toast(`${ids.length} atividades de exemplo removidas`);
   };
@@ -80,8 +87,11 @@ export default function App() {
               <h1>Plano Semanal de Lavra</h1>
               <div className="wk" style={{ position: "relative" }}>
                 <button onClick={() => setWs(addDays(ws, -7))} aria-label="Semana anterior">‹</button>
-                <button className="num" style={{ fontSize: 12.5, padding: 0 }} onClick={() => dateRef.current?.showPicker?.()} title="Escolher semana">Semana {wn} · {wr}</button>
-                <input ref={dateRef} type="date" aria-label="Ir para a data" onChange={(e) => e.target.value && setWs(weekStart(new Date(e.target.value + "T12:00")))} />
+                <button className="pk-btn num" onClick={() => setPicker(!picker)} aria-expanded={picker} title="Escolher período">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
+                  Semana {wn} · {wr}
+                </button>
+                {picker && <PeriodPicker ws={ws} now={now} acts={store.acts} onPick={setWs} onClose={() => setPicker(false)} />}
                 <button onClick={() => setWs(addDays(ws, 7))} aria-label="Próxima semana">›</button>
                 {ws !== curWs && <button className="today-btn" onClick={() => setWs(curWs)}>Hoje</button>}
               </div>
@@ -107,7 +117,8 @@ export default function App() {
                     <button onClick={act(() => setSheet({ k: "settings" }))}>{Icon.gear}Metas e capacidades</button>
                     <hr />
                     <button onClick={act(loadSample)}>{Icon.file}Carregar dados de exemplo (para todos)</button>
-                    {store.acts.some((a) => /^(EX\d|H\d)/.test(a.id)) && <button onClick={act(clearSample)}>{Icon.trash}Remover dados de exemplo (para todos)</button>}
+                    <button onClick={act(loadJan)}>{Icon.file}Carregar janeiro/2026 de exemplo (para todos)</button>
+                    {store.acts.some((a) => /^(EX\d|H\d|J\d)/.test(a.id)) && <button onClick={act(clearSample)}>{Icon.trash}Remover dados de exemplo (para todos)</button>}
                   </div>
                 </>
               )}

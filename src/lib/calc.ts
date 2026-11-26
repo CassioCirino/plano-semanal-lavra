@@ -72,7 +72,7 @@ export function daily(acts: Atividade[], ws: number, now: number): DayAgg[] {
   acts.filter(isMass).forEach((a) => {
     const i = ms(a.ini), f = ms(a.fim), dur = Math.max(HOUR, f - i);
     const s = a.iniReal ? ms(a.iniReal) : i;
-    const endR = Math.min(now, a.fimReal ? ms(a.fimReal) : now);
+    const endR = a.fimReal ? Math.min(now, ms(a.fimReal)) : Math.min(now, Math.max(f, s + HOUR));
     const rdur = Math.max(HOUR / 2, endR - s);
     out.forEach((o, d) => {
       const d0 = addDays(ws, d), d1 = addDays(ws, d + 1);

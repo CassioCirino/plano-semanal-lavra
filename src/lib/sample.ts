@@ -68,3 +68,61 @@ export function sampleHistory(now: number, weeks = 8): Atividade[] {
   }
   return out;
 }
+
+/**
+ * Mês de exemplo fechado (janeiro/2026 por padrão): 5 semanas de plano com andamento realizado,
+ * período chuvoso (mais desvios por chuva no início do mês), quebras e frentes não liberadas.
+ * IDs começam com "J" para poderem ser removidos junto com os demais exemplos.
+ */
+export function sampleMonth(year = 2026, month = 0): Atividade[] {
+  const m0 = new Date(year, month, 1).getTime();
+  const m1 = new Date(year, month + 1, 1).getTime();
+  const out: Atividade[] = [];
+  const ts = new Date().toISOString();
+  // ritmo médio de cada semana (chuva forte nas duas primeiras)
+  const ritmoSemana = [0.7, 0.76, 0.9, 0.95, 0.88];
+  const motivosSemana = [["Chuva", "Chuva", "Frente não liberada"], ["Chuva", "Quebra de equipamento", "Chuva"], ["Quebra de equipamento", "Falta de caminhão", "Geologia / teor"], ["Detonação atrasada", "Falta de caminhão", "Quebra de equipamento"], ["Chuva", "Frente não liberada", "Quebra de equipamento"]];
+  const jit = [1.08, 0.92, 1.03, 0.97, 1.11, 0.86, 1.0, 0.94, 1.06, 0.9, 1.02];
+  let k = 0;
+  for (let ws = weekStart(m0), w = 0; ws < m1; ws += 7 * 24 * HOUR, w++) {
+    const at = (d: number, h: number) => ws + (d * 24 + h) * HOUR;
+    const cotaN = 820 - w * 5, cotaS = 795 - w * 5;
+    type T = [string, Atividade["tipo"], string, string, string, number, number, number, number, number, string, boolean];
+    // nome, tipo, frente, local, equip, d0, h0, d1, h1, meta, un, crítica
+    const tpl: T[] = [
+      ["Lavra de ROM → UTM", "rom", "Cava Norte", `Bancada ${cotaN}`, "ESC-01 PC2000 + 6× CAT 777", 0, 7, 4, 19, 30000, "t", true],
+      ["Lavra de ROM → UTM", "rom", "Cava Sul", `Bancada ${cotaS}`, "ESC-02 PC1250 + 4× CAT 777", 1, 7, 5, 19, 18000, "t", false],
+      ["Remoção de estéril → PDE-02", "est", "Cava Norte", `Bancada ${cotaN + 10}`, "ESC-03 PC2000 + 8× CAT 777", 0, 7, 6, 7, 45000, "t", false],
+      ["Remoção de estéril → PDE-02", "est", "Cava Sul", `Bancada ${cotaS + 10}`, "ESC-04 CAT 374 + 3× CAT 775", 2, 7, 5, 19, 22000, "t", false],
+      ["Perfuração primária", "geo", "Cava Norte", `Bancada ${cotaN - 10}`, "PF-01 · Perfuratriz D65", 0, 7, 2, 19, 2600, "m", false],
+      ["Desmonte (fogo)", "geo", "Cava Norte", `Bancada ${cotaN - 10}`, "Equipe de desmonte", 3, 11, 3, 13, 1, "fogo", true],
+      ["Perfuração primária", "geo", "Cava Sul", `Bancada ${cotaS - 10}`, "PF-02 · Perfuratriz DM45", 2, 7, 4, 19, 1800, "m", false],
+      ["Conformação de berma", "geo", "PDE-02", `Berma ${3 + w}, cota ${770 - w * 5}`, "Trator D9", 3, 7, 4, 19, 6000, "m²", false],
+      ["Drenagem e manutenção de acessos", "geo", "Infraestrutura", "Acessos principais e canaletas", "MN-01 + caminhão-pipa", 0, 7, 6, 19, 14, "km", false],
+      ["Manutenção de equipamento", "geo", "Oficina", w % 2 ? "Preventiva 500 h ESC-01" : "Preventiva 250 h CAT 777 (frota)", w % 2 ? "ESC-01 PC2000" : "6× CAT 777", 5, 7, 5, 19, 12, "h", false],
+    ];
+    tpl.forEach((t, j) => {
+      const [nome, tipo, frente, local, equip, d0, h0, d1, h1, meta, un, critica] = t;
+      const ini = at(d0, h0), fim = at(d1, h1);
+      if (ini < m0 || ini >= m1) return; // só atividades que começam no mês
+      const f = Math.min(1, ritmoSemana[w % ritmoSemana.length] * jit[(j + w * 3) % jit.length] + (tipo === "geo" ? 0.06 : 0));
+      let real = meta * f;
+      real = un === "t" ? Math.round(real / 10) * 10 : un === "fogo" ? (f > 0.8 ? 1 : 0) : un === "h" ? meta : Math.round(real * 10) / 10;
+      const done = real >= meta;
+      const late = !done;
+      out.push({
+        id: `J${year % 100}${String(month + 1).padStart(2, "0")}-${w}-${j}`,
+        nome, tipo, frente, local, equip,
+        ini: new Date(ini).toISOString(), fim: new Date(fim).toISOString(), meta, un, real,
+        iniReal: new Date(ini + (j % 3 === 1 ? HOUR : 0)).toISOString(),
+        fimReal: done ? new Date(fim - (j % 2 ? 3 : 0) * HOUR).toISOString() : null,
+        critica,
+        motivo: late ? motivosSemana[w % motivosSemana.length][(j + k) % 3] : "",
+        obs: late && j === 0 ? "Frente com lama após chuva; carregamento parado por parte do turno." : "",
+        updatedAt: ts,
+      });
+      k++;
+    });
+  }
+  return out;
+}
