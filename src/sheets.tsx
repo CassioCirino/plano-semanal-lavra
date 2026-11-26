@@ -259,7 +259,7 @@ export function ShareSheet({ team, sync, onClose, onCreate, onLeave, toast }: {
   const create = async () => {
     setBusy(true); setErr("");
     try { await onCreate(); toast("Espaço da equipe criado"); }
-    catch { setErr("Não consegui criar o espaço agora. Confira a conexão e tente de novo."); }
+    catch (e) { setErr(String(e).includes("sem-banco") ? "O banco da equipe ainda não foi ligado ao projeto na Vercel (Storage > Upstash for Redis)." : "Não consegui criar o espaço agora. Confira a conexão e tente de novo."); }
     finally { setBusy(false); }
   };
   return (

@@ -192,7 +192,7 @@ export function useStore() {
   const createTeam = useCallback(async () => {
     const doc: Doc = { app: "plano-semanal-lavra", v: 1, acts: state.current.acts, deleted: deleted.current, cfg: state.current.cfg, cfgAt: cfgAt.current ?? new Date().toISOString() };
     const r = await fetch(BLOB_API, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(doc) });
-    if (!r.ok) throw new Error("POST " + r.status);
+    if (!r.ok) throw new Error(r.status === 503 ? "sem-banco" : "POST " + r.status);
     const { id } = (await r.json()) as { id?: string };
     if (!id) throw new Error("sem id");
     write(K_TEAM, id);
