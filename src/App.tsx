@@ -6,7 +6,7 @@ import { addDays, weekLabel, weekStart } from "./lib/time";
 import { exportModelo, exportPlano } from "./lib/excel";
 import { sampleHistory, sampleWeek } from "./lib/sample";
 import { AderenciaView, ApontarView, GanttView, HojeView, type VProps } from "./views";
-import { ActivityForm, ImportSheet, SettingsSheet, ShareSheet, UpdateSheet } from "./sheets";
+import { ActivityForm, ImportSheet, SettingsSheet, UpdateSheet } from "./sheets";
 import { Icon } from "./ui";
 
 type View = "gantt" | "hoje" | "apontar" | "aderencia";
@@ -19,7 +19,6 @@ type SheetState =
   | { k: "form"; id: string | null }
   | { k: "settings" }
   | { k: "import" }
-  | { k: "share" }
   | null;
 
 const SYNC_TXT: Record<Sync, string> = { local: "Neste aparelho", sincronizado: "Sincronizado", enviando: "Sincronizando…", offline: "Sem sinal · salvo no aparelho", erro: "Erro ao sincronizar" };
@@ -92,7 +91,7 @@ export default function App() {
             {VIEWS.map((v) => <a key={v} href={`#${v}`} aria-current={view === v ? "page" : undefined}>{LABEL[v]}</a>)}
           </nav>
           <div className="top-actions">
-            <span className={`sync hide-m ${store.sync}`} title={store.team ? "Dados compartilhados com a equipe" : "Dados salvos só neste aparelho"} style={{ cursor: "pointer" }} onClick={() => store.sync === "erro" ? void store.retry() : setSheet({ k: "share" })}><i />{SYNC_TXT[store.sync]}</span>
+            <span className={`sync hide-m ${store.sync}`} title="Plano único, compartilhado por todos que usam o app" onClick={() => store.sync === "erro" && void store.retry()}><i />{SYNC_TXT[store.sync]}</span>
             <button className="btn hide-m" onClick={() => setSheet({ k: "import" })}>{Icon.down}<span className="lg">Importar Excel</span></button>
             <div style={{ position: "relative" }}>
               <button className="iconbtn" aria-label="Mais opções" aria-expanded={menu} onClick={() => setMenu(!menu)}>{Icon.more}</button>
@@ -105,11 +104,10 @@ export default function App() {
                     <button onClick={act(() => doExport("tudo"))}>{Icon.up}Exportar todo o histórico</button>
                     <button onClick={act(() => exportModelo(ws))}>{Icon.file}Baixar planilha modelo</button>
                     <hr />
-                    <button onClick={act(() => setSheet({ k: "share" }))}>{Icon.share}{store.team ? "Espaço da equipe (link)" : "Compartilhar com a equipe"}</button>
                     <button onClick={act(() => setSheet({ k: "settings" }))}>{Icon.gear}Metas e capacidades</button>
                     <hr />
-                    <button onClick={act(loadSample)}>{Icon.file}Carregar dados de exemplo</button>
-                    {store.acts.some((a) => /^(EX\d|H\d)/.test(a.id)) && <button onClick={act(clearSample)}>{Icon.trash}Remover dados de exemplo</button>}
+                    <button onClick={act(loadSample)}>{Icon.file}Carregar dados de exemplo (para todos)</button>
+                    {store.acts.some((a) => /^(EX\d|H\d)/.test(a.id)) && <button onClick={act(clearSample)}>{Icon.trash}Remover dados de exemplo (para todos)</button>}
                   </div>
                 </>
               )}
@@ -131,7 +129,7 @@ export default function App() {
         ) : empty ? (
           <div className="panel empty">
             <h2>Nenhuma atividade no plano ainda</h2>
-            <p>Importe o plano semanal da planilha que vocês já usam, cadastre as atividades aqui ou carregue uma semana de exemplo para conhecer o app.</p>
+            <p>Este é o plano único da equipe: o que for cadastrado aqui aparece para todos que abrirem o app. Importe a planilha que vocês já usam, cadastre as atividades ou carregue uma semana de exemplo para conhecer o app.</p>
             <div className="acts">
               <button className="btn primary" onClick={() => setSheet({ k: "import" })}>{Icon.down}Importar Excel</button>
               <button className="btn" onClick={() => setSheet({ k: "form", id: null })}>{Icon.plus}Nova atividade</button>
@@ -147,7 +145,7 @@ export default function App() {
           </>
         )}
         <div className="foot">
-          <span>{store.team ? "Dados compartilhados com a equipe" : <>Dados salvos neste aparelho · <button className="linkbtn" onClick={() => setSheet({ k: "share" })}>compartilhar com a equipe</button></>} · <span className={`sync ${store.sync}`} style={{ border: 0, padding: 0, background: "none" }}><i />{SYNC_TXT[store.sync]}</span></span>
+          <span>Plano único da equipe: todos veem e editam os mesmos dados · <span className={`sync ${store.sync}`} style={{ border: 0, padding: 0, background: "none" }}><i />{SYNC_TXT[store.sync]}</span></span>
           <span>BEMISA · Desafio SENAI</span>
         </div>
       </main>
@@ -186,9 +184,6 @@ export default function App() {
             if (first) setWs(weekStart(first));
             toast(`${list.length} atividades importadas`);
           }} />
-      )}
-      {sheet?.k === "share" && (
-        <ShareSheet team={store.team} sync={store.sync} onClose={() => setSheet(null)} onCreate={store.createTeam} onLeave={() => { store.leaveTeam(); setSheet(null); toast("Este aparelho saiu do espaço da equipe"); }} toast={toast} />
       )}
       <div className={`toast ${msg ? "on" : ""}`} role="status" aria-live="polite">{msg}</div>
     </>

@@ -3,21 +3,19 @@ import type { Atividade, Config } from "./types";
 import { DEFAULT_CONFIG } from "./types";
 
 /*
- * Armazenamento
+ * Armazenamento (um plano único, compartilhado por todos que abrem o app)
  *  - Cache local (localStorage): o app abre rápido e funciona sem sinal na mina.
- *  - Espaço compartilhado da equipe (opcional): um documento JSON guardado pela função
- *    /api/blob da Vercel (banco Redis/Upstash ligado ao projeto), criado com um toque. Quem abre o link com ?equipe=<id>
- *    entra no mesmo espaço. O app junta as mudanças locais com as da nuvem atividade por
- *    atividade (vence a alteração mais recente), então duas pessoas apontando ao mesmo
- *    tempo não se sobrescrevem. Sem sinal, as mudanças ficam no aparelho e sobem depois.
- *  - Quem tem o link consegue ver e editar os dados (é um protótipo, sem login).
+ *  - Plano compartilhado: um documento JSON guardado pela função /api/blob da Vercel
+ *    (banco Redis/Upstash ligado ao projeto). Todo aparelho que abre o app lê e grava nele.
+ *    As mudanças são juntadas atividade por atividade (vence a mais recente), então duas
+ *    pessoas apontando ao mesmo tempo não se sobrescrevem. Sem sinal, tudo fica no aparelho
+ *    e sobe quando a conexão volta. Protótipo sem login: quem abre o endereço pode editar.
  */
 
-const K_ACTS = "psl.atividades.v1";
-const K_CFG = "psl.config.v1";
-const K_DEL = "psl.excluidas.v1";
-const K_CFGAT = "psl.config.at.v1";
-const K_TEAM = "psl.equipe.v1";
+const K_ACTS = "psl.atividades.v2";
+const K_CFG = "psl.config.v2";
+const K_DEL = "psl.excluidas.v2";
+const K_CFGAT = "psl.config.at.v2";
 export const BLOB_API = "/api/blob";
 
 interface Doc {
@@ -64,30 +62,12 @@ const sig = (d: { acts: Atividade[]; deleted: Record<string, string>; cfgAt: str
 
 export type Sync = "local" | "sincronizado" | "enviando" | "offline" | "erro";
 
-export function teamFromUrl(): string | null {
-  try {
-    const u = new URL(location.href);
-    const id = u.searchParams.get("equipe");
-    if (id && /^[\w-]{6,80}$/.test(id)) {
-      u.searchParams.delete("equipe");
-      history.replaceState(null, "", u.pathname + u.search + u.hash);
-      return id;
-    }
-  } catch { /* */ }
-  return null;
-}
-export const teamLink = (id: string) => `${location.origin}${location.pathname}?equipe=${id}`;
-
 export function useStore() {
   const [acts, setActs] = useState<Atividade[]>(() => read(K_ACTS, [] as Atividade[]));
   const [cfg, setCfg] = useState<Config>(() => ({ ...DEFAULT_CONFIG, ...read(K_CFG, {}) }));
-  const [team, setTeam] = useState<string | null>(() => {
-    const fromUrl = teamFromUrl();
-    if (fromUrl) write(K_TEAM, fromUrl);
-    return fromUrl ?? read<string | null>(K_TEAM, null);
-  });
-  const [sync, setSync] = useState<Sync>(team ? "enviando" : "local");
-  const [loaded, setLoaded] = useState(!team);
+  const team = "principal";
+  const [sync, setSync] = useState<Sync>("enviando");
+  const [loaded, setLoaded] = useState(() => read<Atividade[]>(K_ACTS, []).length > 0);
   const deleted = useRef<Record<string, string>>(read(K_DEL, {}));
   const cfgAt = useRef<string | null>(read(K_CFGAT, null));
   const state = useRef({ acts, cfg });
@@ -99,7 +79,6 @@ export function useStore() {
   useEffect(() => write(K_CFG, cfg), [cfg]);
 
   const doSync = useCallback(async () => {
-    if (!team) return;
     if (busy.current) { again.current = true; return; }
     if (!navigator.onLine) { setSync("offline"); return; }
     busy.current = true;
@@ -107,8 +86,8 @@ export function useStore() {
       do {
         again.current = false;
         const r = await fetch(`${BLOB_API}?id=${team}`, { headers: { Accept: "application/json" }, cache: "no-store" });
-        if (!r.ok) throw new Error("GET " + r.status);
-        const remote = (await r.json()) as Partial<Doc>;
+        if (!r.ok && r.status !== 404) throw new Error("GET " + r.status);
+        const remote = (r.status === 404 ? {} : await r.json()) as Partial<Doc>;
         const rem = { acts: remote.acts ?? [], deleted: remote.deleted ?? {}, cfg: remote.cfg ?? null, cfgAt: remote.cfgAt ?? null };
         const loc = { acts: state.current.acts, deleted: deleted.current, cfg: state.current.cfg, cfgAt: cfgAt.current };
         const mg = merge(loc, rem);
@@ -139,7 +118,6 @@ export function useStore() {
 
   // Sincroniza ao abrir, a cada 20 s, ao voltar o sinal e ao voltar para o app
   useEffect(() => {
-    if (!team) { setSync("local"); setLoaded(true); return; }
     void doSync();
     const t = setInterval(() => document.visibilityState === "visible" && void doSync(), 30000);
     const on = () => void doSync();
@@ -151,7 +129,6 @@ export function useStore() {
 
   const debounce = useRef<number>();
   const push = useCallback(() => {
-    if (!team) return;
     setSync("enviando");
     clearTimeout(debounce.current);
     debounce.current = window.setTimeout(() => void doSync(), 600);
@@ -188,20 +165,7 @@ export function useStore() {
     push();
   }, [push]);
 
-  /** Cria o espaço da equipe com os dados atuais deste aparelho e devolve o id. */
-  const createTeam = useCallback(async () => {
-    const doc: Doc = { app: "plano-semanal-lavra", v: 1, acts: state.current.acts, deleted: deleted.current, cfg: state.current.cfg, cfgAt: cfgAt.current ?? new Date().toISOString() };
-    const r = await fetch(BLOB_API, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(doc) });
-    if (!r.ok) throw new Error(r.status === 503 ? "sem-banco" : "POST " + r.status);
-    const { id } = (await r.json()) as { id?: string };
-    if (!id) throw new Error("sem id");
-    write(K_TEAM, id);
-    setTeam(id);
-    return id;
-  }, []);
-  const leaveTeam = useCallback(() => { write(K_TEAM, null); setTeam(null); }, []);
-
-  return { acts, cfg, sync, loaded, team, upsert, upsertMany, remove, saveCfg, retry: doSync, createTeam, leaveTeam };
+  return { acts, cfg, sync, loaded, team, upsert, upsertMany, remove, saveCfg, retry: doSync };
 }
 
 export const newId = () =>

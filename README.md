@@ -45,14 +45,15 @@ npm install
 npm run dev
 ```
 
-## Dados compartilhados com a equipe
+## Dados: um plano único para todos
 
-Sem configuração, cada aparelho guarda o próprio plano. Para a equipe toda ver o mesmo plano, toque em "⋯ > Compartilhar com a equipe > Criar espaço da equipe". O app grava um documento JSON com o plano deste aparelho na função `/api/blob` da própria Vercel e mostra um link no formato `https://.../?equipe=<id>`. Quem abre esse link entra no mesmo espaço.
+Todo mundo que abre o app usa o mesmo plano. Não há login nem "equipes": o que uma pessoa cadastra ou aponta aparece para as outras.
 
-- A sincronização acontece ao abrir o app, a cada 30 segundos, ao voltar para o app e logo depois de cada alteração.
-- As mudanças são juntadas atividade por atividade, e vence a alteração mais recente. Assim, duas pessoas apontando ao mesmo tempo não apagam o trabalho uma da outra.
-- Sem sinal, tudo fica salvo no aparelho e é enviado quando a conexão volta.
-- Por ser um protótipo sem login, quem tem o link consegue ver e editar os dados. Para produção, o próximo passo é trocar por um banco com login (por exemplo Supabase).
+- O plano fica num documento JSON guardado pela função `/api/blob` da própria Vercel (banco Redis gratuito da Upstash).
+- Cada aparelho guarda uma cópia, então o app abre rápido e funciona sem sinal na mina. O que for feito sem sinal sobe quando a conexão volta.
+- A sincronização acontece ao abrir o app, a cada 30 segundos e logo depois de cada alteração. As mudanças são juntadas atividade por atividade, e vence a mais recente.
+- "Carregar dados de exemplo" e "Remover dados de exemplo" (no menu ⋯) valem para todos.
+- Protótipo sem login: quem tiver o endereço pode editar. Para produção, o próximo passo é adicionar login.
 
 ### Ligar o banco (uma vez)
 

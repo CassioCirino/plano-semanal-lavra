@@ -3,7 +3,7 @@ import type { Atividade, Config } from "./lib/types";
 import { FRENTES, MOTIVOS, TIPOS } from "./lib/types";
 import { expct, fmt, fq, isBehind, pct, status } from "./lib/calc";
 import { addDays, fmtDH, fromLocalInput, monthKey, ms, toLocalInput, MESES_FULL, HOUR } from "./lib/time";
-import { newId, teamLink } from "./lib/store";
+import { newId } from "./lib/store";
 import { importPlano, exportModelo, type ImportResult } from "./lib/excel";
 import { CritMark, Pill } from "./ui";
 
@@ -244,49 +244,3 @@ export function ImportSheet({ all, ws, onClose, onApply }: {
   );
 }
 
-export function ShareSheet({ team, sync, onClose, onCreate, onLeave, toast }: {
-  team: string | null; sync: string; onClose: () => void; onCreate: () => Promise<string>; onLeave: () => void; toast: (m: string) => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  const [sair, setSair] = useState(false);
-  const link = team ? teamLink(team) : "";
-  const inp = useRef<HTMLInputElement>(null);
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(link); toast("Link copiado"); }
-    catch { inp.current?.select(); toast("Selecione e copie o link"); }
-  };
-  const create = async () => {
-    setBusy(true); setErr("");
-    try { await onCreate(); toast("Espaço da equipe criado"); }
-    catch (e) { setErr(String(e).includes("sem-banco") ? "O banco da equipe ainda não foi ligado ao projeto na Vercel (Storage > Upstash for Redis)." : "Não consegui criar o espaço agora. Confira a conexão e tente de novo."); }
-    finally { setBusy(false); }
-  };
-  return (
-    <Sheet onClose={onClose} eyebrow="Equipe" title={team ? "Espaço compartilhado" : "Compartilhar com a equipe"}
-      footer={team ? <>
-        {sair ? <button className="btn danger" onClick={onLeave}>Confirmar saída</button> : <button className="btn" onClick={() => setSair(true)}>Sair do espaço</button>}
-        <span style={{ flex: 1 }} className="hide-m" />
-        {typeof navigator.share === "function" && <button className="btn" onClick={() => navigator.share({ title: "Plano Semanal de Lavra", url: link }).catch(() => {})}>Enviar…</button>}
-        <button className="btn primary" onClick={copy}>Copiar link</button>
-      </> : <>
-        <button className="btn" onClick={onClose}>Agora não</button>
-        <button className="btn primary" disabled={busy} onClick={create}>{busy ? "Criando…" : "Criar espaço da equipe"}</button>
-      </>}>
-      {team ? (
-        <>
-          <p style={{ margin: 0 }}>Todos que abrirem este link veem e atualizam o mesmo plano. Envie para a equipe de planejamento e da operação.</p>
-          <div className="linkbox"><input ref={inp} className="inp" readOnly value={link} onFocus={(e) => e.target.select()} aria-label="Link do espaço" /></div>
-          <div className="muted" style={{ fontSize: 12.5 }}>Situação: {sync === "sincronizado" ? "sincronizado" : sync === "offline" ? "sem sinal, as mudanças sobem quando voltar" : sync === "erro" ? "erro ao sincronizar, tentando de novo" : "sincronizando…"}. Atualiza sozinho a cada 30 segundos.</div>
-          <div className="muted" style={{ fontSize: 12.5 }}>Protótipo sem login: quem tiver o link consegue ver e editar os dados.</div>
-        </>
-      ) : (
-        <>
-          <p style={{ margin: 0 }}>Cria um espaço online para a equipe com o plano que está neste aparelho. Depois é só enviar o link: quem abrir vê e atualiza o mesmo plano, no celular ou no PC.</p>
-          <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>Não precisa de conta. Sem sinal, o app continua funcionando e envia as mudanças quando a conexão voltar. Por ser um protótipo sem login, quem tiver o link consegue ver e editar os dados.</p>
-          {err && <div className="errs">{err}</div>}
-        </>
-      )}
-    </Sheet>
-  );
-}
