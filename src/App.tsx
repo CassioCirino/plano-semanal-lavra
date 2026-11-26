@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Atividade } from "./lib/types";
-import { CLOUD, useStore, type Sync } from "./lib/store";
+import { useStore, type Sync } from "./lib/store";
 import { inWeekRange, ofWeek } from "./lib/calc";
 import { addDays, weekLabel, weekStart } from "./lib/time";
 import { exportModelo, exportPlano } from "./lib/excel";
 import { sampleHistory, sampleWeek } from "./lib/sample";
 import { AderenciaView, ApontarView, GanttView, HojeView, type VProps } from "./views";
-import { ActivityForm, ImportSheet, SettingsSheet, UpdateSheet } from "./sheets";
+import { ActivityForm, ImportSheet, SettingsSheet, ShareSheet, UpdateSheet } from "./sheets";
 import { Icon } from "./ui";
 
 type View = "gantt" | "hoje" | "apontar" | "aderencia";
@@ -19,6 +19,7 @@ type SheetState =
   | { k: "form"; id: string | null }
   | { k: "settings" }
   | { k: "import" }
+  | { k: "share" }
   | null;
 
 const SYNC_TXT: Record<Sync, string> = { local: "Neste aparelho", sincronizado: "Sincronizado", enviando: "Sincronizando…", offline: "Sem sinal · salvo no aparelho", erro: "Erro ao sincronizar" };
@@ -91,7 +92,7 @@ export default function App() {
             {VIEWS.map((v) => <a key={v} href={`#${v}`} aria-current={view === v ? "page" : undefined}>{LABEL[v]}</a>)}
           </nav>
           <div className="top-actions">
-            <span className={`sync hide-m ${store.sync}`} title={CLOUD ? "Dados compartilhados com a equipe" : "Dados salvos só neste aparelho"} onClick={() => store.sync === "erro" && store.retry()}><i />{SYNC_TXT[store.sync]}</span>
+            <span className={`sync hide-m ${store.sync}`} title={store.team ? "Dados compartilhados com a equipe" : "Dados salvos só neste aparelho"} style={{ cursor: "pointer" }} onClick={() => store.sync === "erro" ? void store.retry() : setSheet({ k: "share" })}><i />{SYNC_TXT[store.sync]}</span>
             <button className="btn hide-m" onClick={() => setSheet({ k: "import" })}>{Icon.down}<span className="lg">Importar Excel</span></button>
             <div style={{ position: "relative" }}>
               <button className="iconbtn" aria-label="Mais opções" aria-expanded={menu} onClick={() => setMenu(!menu)}>{Icon.more}</button>
@@ -104,6 +105,7 @@ export default function App() {
                     <button onClick={act(() => doExport("tudo"))}>{Icon.up}Exportar todo o histórico</button>
                     <button onClick={act(() => exportModelo(ws))}>{Icon.file}Baixar planilha modelo</button>
                     <hr />
+                    <button onClick={act(() => setSheet({ k: "share" }))}>{Icon.share}{store.team ? "Espaço da equipe (link)" : "Compartilhar com a equipe"}</button>
                     <button onClick={act(() => setSheet({ k: "settings" }))}>{Icon.gear}Metas e capacidades</button>
                     <hr />
                     <button onClick={act(loadSample)}>{Icon.file}Carregar dados de exemplo</button>
@@ -145,7 +147,7 @@ export default function App() {
           </>
         )}
         <div className="foot">
-          <span>{CLOUD ? "Dados compartilhados com a equipe" : "Dados salvos neste aparelho"} · <span className={`sync ${store.sync}`} style={{ border: 0, padding: 0, background: "none" }}><i />{SYNC_TXT[store.sync]}</span></span>
+          <span>{store.team ? "Dados compartilhados com a equipe" : <>Dados salvos neste aparelho · <button className="linkbtn" onClick={() => setSheet({ k: "share" })}>compartilhar com a equipe</button></>} · <span className={`sync ${store.sync}`} style={{ border: 0, padding: 0, background: "none" }}><i />{SYNC_TXT[store.sync]}</span></span>
           <span>BEMISA · Desafio SENAI</span>
         </div>
       </main>
@@ -184,6 +186,9 @@ export default function App() {
             if (first) setWs(weekStart(first));
             toast(`${list.length} atividades importadas`);
           }} />
+      )}
+      {sheet?.k === "share" && (
+        <ShareSheet team={store.team} sync={store.sync} onClose={() => setSheet(null)} onCreate={store.createTeam} onLeave={() => { store.leaveTeam(); setSheet(null); toast("Este aparelho saiu do espaço da equipe"); }} toast={toast} />
       )}
       <div className={`toast ${msg ? "on" : ""}`} role="status" aria-live="polite">{msg}</div>
     </>

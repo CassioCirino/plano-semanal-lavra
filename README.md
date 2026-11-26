@@ -45,21 +45,20 @@ npm install
 npm run dev
 ```
 
-## Dados compartilhados (Supabase)
+## Dados compartilhados com a equipe
 
-Sem configuração, cada aparelho guarda o próprio plano. Para a equipe toda ver o mesmo plano em tempo real:
+Sem configuração, cada aparelho guarda o próprio plano. Para a equipe toda ver o mesmo plano, toque em "⋯ > Compartilhar com a equipe > Criar espaço da equipe". O app cria um documento JSON online (jsonblob.com, sem conta) com o plano deste aparelho e mostra um link no formato `https://.../?equipe=<id>`. Quem abre esse link entra no mesmo espaço.
 
-1. Crie um projeto grátis em https://supabase.com.
-2. No **SQL Editor**, rode o script [`supabase/schema.sql`](supabase/schema.sql).
-3. Em **Project Settings > API**, copie a *Project URL* e a chave *anon public*.
-4. Defina `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` no `.env.local` (para rodar localmente) ou nas variáveis de ambiente da Vercel.
+- A sincronização acontece ao abrir o app, a cada 20 segundos, ao voltar para o app e logo depois de cada alteração.
+- As mudanças são juntadas atividade por atividade, e vence a alteração mais recente. Assim, duas pessoas apontando ao mesmo tempo não apagam o trabalho uma da outra.
+- Sem sinal, tudo fica salvo no aparelho e é enviado quando a conexão volta.
+- Por ser um protótipo sem login, quem tem o link consegue ver e editar os dados. Para produção, o próximo passo é trocar por um banco com login (por exemplo Supabase).
 
 ## Publicar na Vercel
 
 1. Em https://vercel.com/new, importe este repositório. O framework é detectado como **Vite**.
-2. Em *Environment Variables*, adicione as duas variáveis do Supabase.
-3. Clique em **Deploy**. Cada push na branch principal publica uma nova versão.
+2. Clique em **Deploy**. Cada push na branch principal publica uma nova versão.
 
 ## Tecnologia
 
-React 18, TypeScript, Vite, vite-plugin-pwa (instalação e uso offline), SheetJS (Excel) e Supabase (Postgres e tempo real).
+React 18, TypeScript, Vite, vite-plugin-pwa (instalação e uso offline), SheetJS (Excel) e jsonblob.com (espaço compartilhado).

@@ -3,19 +3,31 @@ import type { Atividade, Config } from "./types";
 import { DEFAULT_CONFIG } from "./types";
 
 /*
- * Armazenamento:
- *  - Sempre há um cache local (localStorage), para abrir rápido e funcionar sem sinal na mina.
- *  - Se VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY estiverem definidas, os dados são
- *    sincronizados com o Supabase (tabelas "atividades" e "config") e as mudanças de
- *    outras pessoas chegam em tempo real. Gravações feitas sem sinal ficam numa fila e
- *    são enviadas quando a conexão volta.
+ * Armazenamento
+ *  - Cache local (localStorage): o app abre rápido e funciona sem sinal na mina.
+ *  - Espaço compartilhado da equipe (opcional): um documento JSON online no jsonblob.com,
+ *    criado pelo próprio app com um toque, sem conta. Quem abre o link com ?equipe=<id>
+ *    entra no mesmo espaço. O app junta as mudanças locais com as da nuvem atividade por
+ *    atividade (vence a alteração mais recente), então duas pessoas apontando ao mesmo
+ *    tempo não se sobrescrevem. Sem sinal, as mudanças ficam no aparelho e sobem depois.
+ *  - Quem tem o link consegue ver e editar os dados (é um protótipo, sem login).
  */
 
 const K_ACTS = "psl.atividades.v1";
 const K_CFG = "psl.config.v1";
-const K_QUEUE = "psl.fila.v1";
+const K_DEL = "psl.excluidas.v1";
+const K_CFGAT = "psl.config.at.v1";
+const K_TEAM = "psl.equipe.v1";
+export const BLOB_API = "https://jsonblob.com/api/jsonBlob";
 
-type Op = { t: "up"; a: Atividade } | { t: "del"; id: string } | { t: "cfg"; c: Config };
+interface Doc {
+  app: "plano-semanal-lavra";
+  v: 1;
+  acts: Atividade[];
+  deleted: Record<string, string>; // id -> data da exclusão
+  cfg: Config | null;
+  cfgAt: string | null;
+}
 
 const read = <T,>(k: string, fb: T): T => {
   try {
@@ -27,128 +39,123 @@ const read = <T,>(k: string, fb: T): T => {
 };
 const write = (k: string, v: unknown) => {
   try {
-    localStorage.setItem(k, JSON.stringify(v));
+    if (v === null) localStorage.removeItem(k);
+    else localStorage.setItem(k, JSON.stringify(v));
   } catch {
     /* armazenamento cheio ou bloqueado */
   }
 };
 
-const SB_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-export const CLOUD = Boolean(SB_URL && SB_KEY);
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let sbPromise: Promise<any> | null = null;
-const supabase = () => {
-  if (!sbPromise)
-    sbPromise = import("@supabase/supabase-js").then(({ createClient }) => createClient(SB_URL!, SB_KEY!));
-  return sbPromise;
-};
+/** Junta dois estados: por atividade vence o updatedAt mais recente; exclusões valem se forem mais novas. */
+export function merge(a: Pick<Doc, "acts" | "deleted" | "cfg" | "cfgAt">, b: Pick<Doc, "acts" | "deleted" | "cfg" | "cfgAt">) {
+  const deleted: Record<string, string> = { ...a.deleted };
+  for (const [id, t] of Object.entries(b.deleted ?? {})) if (!deleted[id] || deleted[id] < t) deleted[id] = t;
+  const m = new Map<string, Atividade>();
+  for (const x of [...(a.acts ?? []), ...(b.acts ?? [])]) {
+    const cur = m.get(x.id);
+    if (!cur || (x.updatedAt ?? "") > (cur.updatedAt ?? "")) m.set(x.id, x);
+  }
+  const acts = [...m.values()].filter((x) => !deleted[x.id] || deleted[x.id] < (x.updatedAt ?? ""));
+  const useA = (a.cfgAt ?? "") >= (b.cfgAt ?? "");
+  return { acts, deleted, cfg: useA ? a.cfg : b.cfg, cfgAt: useA ? a.cfgAt : b.cfgAt };
+}
+const sig = (d: { acts: Atividade[]; deleted: Record<string, string>; cfgAt: string | null }) =>
+  JSON.stringify([d.acts.map((x) => x.id + x.updatedAt).sort(), Object.keys(d.deleted).sort(), d.cfgAt]);
 
 export type Sync = "local" | "sincronizado" | "enviando" | "offline" | "erro";
+
+export function teamFromUrl(): string | null {
+  try {
+    const u = new URL(location.href);
+    const id = u.searchParams.get("equipe");
+    if (id && /^[\w-]{6,80}$/.test(id)) {
+      u.searchParams.delete("equipe");
+      history.replaceState(null, "", u.pathname + u.search + u.hash);
+      return id;
+    }
+  } catch { /* */ }
+  return null;
+}
+export const teamLink = (id: string) => `${location.origin}${location.pathname}?equipe=${id}`;
 
 export function useStore() {
   const [acts, setActs] = useState<Atividade[]>(() => read(K_ACTS, [] as Atividade[]));
   const [cfg, setCfg] = useState<Config>(() => ({ ...DEFAULT_CONFIG, ...read(K_CFG, {}) }));
-  const [sync, setSync] = useState<Sync>(CLOUD ? "enviando" : "local");
-  const [loaded, setLoaded] = useState(!CLOUD);
-  const queue = useRef<Op[]>(read(K_QUEUE, [] as Op[]));
-  const flushing = useRef(false);
+  const [team, setTeam] = useState<string | null>(() => {
+    const fromUrl = teamFromUrl();
+    if (fromUrl) write(K_TEAM, fromUrl);
+    return fromUrl ?? read<string | null>(K_TEAM, null);
+  });
+  const [sync, setSync] = useState<Sync>(team ? "enviando" : "local");
+  const [loaded, setLoaded] = useState(!team);
+  const deleted = useRef<Record<string, string>>(read(K_DEL, {}));
+  const cfgAt = useRef<string | null>(read(K_CFGAT, null));
+  const state = useRef({ acts, cfg });
+  state.current = { acts, cfg };
+  const busy = useRef(false);
+  const again = useRef(false);
 
   useEffect(() => write(K_ACTS, acts), [acts]);
   useEffect(() => write(K_CFG, cfg), [cfg]);
 
-  const flush = useCallback(async () => {
-    if (!CLOUD || flushing.current) return;
+  const doSync = useCallback(async () => {
+    if (!team) return;
+    if (busy.current) { again.current = true; return; }
     if (!navigator.onLine) { setSync("offline"); return; }
-    flushing.current = true;
+    busy.current = true;
     try {
-      const sb = await supabase();
-      while (queue.current.length) {
-        const op = queue.current[0];
-        let r;
-        if (op.t === "up") r = await sb.from("atividades").upsert({ id: op.a.id, data: op.a, updated_at: op.a.updatedAt });
-        else if (op.t === "del") r = await sb.from("atividades").delete().eq("id", op.id);
-        else r = await sb.from("config").upsert({ id: "geral", data: op.c, updated_at: new Date().toISOString() });
-        if (r.error) throw r.error;
-        queue.current.shift();
-        write(K_QUEUE, queue.current);
-      }
+      do {
+        again.current = false;
+        const r = await fetch(`${BLOB_API}/${team}`, { headers: { Accept: "application/json" }, cache: "no-store" });
+        if (!r.ok) throw new Error("GET " + r.status);
+        const remote = (await r.json()) as Partial<Doc>;
+        const rem = { acts: remote.acts ?? [], deleted: remote.deleted ?? {}, cfg: remote.cfg ?? null, cfgAt: remote.cfgAt ?? null };
+        const loc = { acts: state.current.acts, deleted: deleted.current, cfg: state.current.cfg, cfgAt: cfgAt.current };
+        const mg = merge(loc, rem);
+        if (sig(mg) !== sig(rem)) {
+          setSync("enviando");
+          const doc: Doc = { app: "plano-semanal-lavra", v: 1, ...mg };
+          const w = await fetch(`${BLOB_API}/${team}`, {
+            method: "PUT", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(doc),
+          });
+          if (!w.ok) throw new Error("PUT " + w.status);
+        }
+        if (sig(mg) !== sig(loc) || mg.cfgAt !== loc.cfgAt) {
+          setActs(mg.acts);
+          if (mg.cfg) setCfg({ ...DEFAULT_CONFIG, ...mg.cfg });
+        }
+        deleted.current = mg.deleted; write(K_DEL, mg.deleted);
+        cfgAt.current = mg.cfgAt; write(K_CFGAT, mg.cfgAt);
+      } while (again.current);
       setSync("sincronizado");
     } catch (e) {
       console.error("Falha ao sincronizar", e);
       setSync(navigator.onLine ? "erro" : "offline");
     } finally {
-      flushing.current = false;
+      busy.current = false;
+      setLoaded(true);
     }
-  }, []);
+  }, [team]);
 
-  const enqueue = useCallback((ops: Op[]) => {
-    if (!CLOUD) return;
-    queue.current.push(...ops);
-    write(K_QUEUE, queue.current);
-    setSync("enviando");
-    void flush();
-  }, [flush]);
-
-  // Carga inicial e tempo real (nuvem)
+  // Sincroniza ao abrir, a cada 20 s, ao voltar o sinal e ao voltar para o app
   useEffect(() => {
-    if (!CLOUD) return;
-    let alive = true;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let channel: any;
-    (async () => {
-      try {
-        const sb = await supabase();
-        await flush(); // envia o que ficou pendente antes de ler
-        const [ra, rc] = await Promise.all([
-          sb.from("atividades").select("data"),
-          sb.from("config").select("data").eq("id", "geral").maybeSingle(),
-        ]);
-        if (ra.error) throw ra.error;
-        if (!alive) return;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        setActs((ra.data as any[]).map((r) => r.data as Atividade));
-        if (rc.data?.data) setCfg({ ...DEFAULT_CONFIG, ...rc.data.data });
-        setLoaded(true);
-        setSync(queue.current.length ? "enviando" : "sincronizado");
-        channel = sb
-          .channel("plano")
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .on("postgres_changes", { event: "*", schema: "public", table: "atividades" }, (p: any) => {
-            if (p.eventType === "DELETE") setActs((xs) => xs.filter((x) => x.id !== p.old.id));
-            else {
-              const a = p.new.data as Atividade;
-              setActs((xs) => {
-                const i = xs.findIndex((x) => x.id === a.id);
-                if (i < 0) return [...xs, a];
-                if (xs[i].updatedAt > a.updatedAt) return xs;
-                const n = xs.slice(); n[i] = a; return n;
-              });
-            }
-          })
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .on("postgres_changes", { event: "*", schema: "public", table: "config" }, (p: any) => {
-            if (p.new?.data) setCfg({ ...DEFAULT_CONFIG, ...p.new.data });
-          })
-          .subscribe();
-      } catch (e) {
-        console.error(e);
-        setLoaded(true);
-        setSync(navigator.onLine ? "erro" : "offline");
-      }
-    })();
-    const on = () => void flush();
+    if (!team) { setSync("local"); setLoaded(true); return; }
+    void doSync();
+    const t = setInterval(() => document.visibilityState === "visible" && void doSync(), 20000);
+    const on = () => void doSync();
     const off = () => setSync("offline");
-    window.addEventListener("online", on);
-    window.addEventListener("offline", off);
-    return () => {
-      alive = false;
-      window.removeEventListener("online", on);
-      window.removeEventListener("offline", off);
-      if (channel) void supabase().then((sb) => sb.removeChannel(channel));
-    };
-  }, [flush]);
+    const vis = () => document.visibilityState === "visible" && void doSync();
+    addEventListener("online", on); addEventListener("offline", off); document.addEventListener("visibilitychange", vis);
+    return () => { clearInterval(t); removeEventListener("online", on); removeEventListener("offline", off); document.removeEventListener("visibilitychange", vis); };
+  }, [team, doSync]);
+
+  const debounce = useRef<number>();
+  const push = useCallback(() => {
+    if (!team) return;
+    setSync("enviando");
+    clearTimeout(debounce.current);
+    debounce.current = window.setTimeout(() => void doSync(), 600);
+  }, [team, doSync]);
 
   const upsertMany = useCallback((list: Atividade[]) => {
     const ts = new Date().toISOString();
@@ -156,21 +163,46 @@ export function useStore() {
     setActs((xs) => {
       const m = new Map(xs.map((x) => [x.id, x]));
       stamped.forEach((a) => m.set(a.id, a));
-      return [...m.values()];
+      const next = [...m.values()];
+      state.current = { ...state.current, acts: next };
+      return next;
     });
-    enqueue(stamped.map((a) => ({ t: "up", a }) as Op));
-  }, [enqueue]);
+    push();
+  }, [push]);
   const upsert = useCallback((a: Atividade) => upsertMany([a]), [upsertMany]);
   const remove = useCallback((ids: string[]) => {
-    setActs((xs) => xs.filter((x) => !ids.includes(x.id)));
-    enqueue(ids.map((id) => ({ t: "del", id }) as Op));
-  }, [enqueue]);
+    const ts = new Date().toISOString();
+    ids.forEach((id) => (deleted.current[id] = ts));
+    write(K_DEL, deleted.current);
+    setActs((xs) => {
+      const next = xs.filter((x) => !ids.includes(x.id));
+      state.current = { ...state.current, acts: next };
+      return next;
+    });
+    push();
+  }, [push]);
   const saveCfg = useCallback((c: Config) => {
+    cfgAt.current = new Date().toISOString(); write(K_CFGAT, cfgAt.current);
+    state.current = { ...state.current, cfg: c };
     setCfg(c);
-    enqueue([{ t: "cfg", c }]);
-  }, [enqueue]);
+    push();
+  }, [push]);
 
-  return { acts, cfg, sync, loaded, upsert, upsertMany, remove, saveCfg, retry: flush };
+  /** Cria o espaço da equipe com os dados atuais deste aparelho e devolve o id. */
+  const createTeam = useCallback(async () => {
+    const doc: Doc = { app: "plano-semanal-lavra", v: 1, acts: state.current.acts, deleted: deleted.current, cfg: state.current.cfg, cfgAt: cfgAt.current ?? new Date().toISOString() };
+    const r = await fetch(BLOB_API, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(doc) });
+    if (!r.ok) throw new Error("POST " + r.status);
+    const loc = r.headers.get("Location") ?? r.headers.get("X-jsonblob-id") ?? "";
+    const id = loc.split("/").filter(Boolean).pop();
+    if (!id) throw new Error("sem id");
+    write(K_TEAM, id);
+    setTeam(id);
+    return id;
+  }, []);
+  const leaveTeam = useCallback(() => { write(K_TEAM, null); setTeam(null); }, []);
+
+  return { acts, cfg, sync, loaded, team, upsert, upsertMany, remove, saveCfg, retry: doSync, createTeam, leaveTeam };
 }
 
 export const newId = () =>
